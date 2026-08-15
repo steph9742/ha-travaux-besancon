@@ -86,7 +86,7 @@ geo_location_sources:
 default_zoom: 13
 ```
 
-Un **clic sur un marqueur** ouvre la fiche du chantier : type d'arrêté, motif (« travaux de réfection des enrobés »…), période réelle (`du` / `au`), horaires (« de 8h00 à 17h00 », « de nuit », ou « toute la journée »), restrictions, demandeur, quartiers et lien vers le PDF.
+Un **clic sur un marqueur** ouvre la fiche du chantier : type d'arrêté, motif (« travaux de réfection des enrobés »…), période réelle (`du` / `au`), horaires (« de 8h00 à 17h00 », « de nuit », ou « toute la journée »), numéro dans la rue le cas échéant, restrictions, demandeur, quartiers et lien vers le PDF.
 
 Le géocodage des rues (BAN + OpenStreetMap) est embarqué dans l'intégration : ~93 % des rues ont des coordonnées ; les quelques voies inconnues des géocodeurs (certains sentiers ou chemins) n'affichent pas de marqueur mais restent visibles dans la liste.
 
@@ -94,7 +94,9 @@ Le géocodage des rues (BAN + OpenStreetMap) est embarqué dans l'intégration :
 
 Le détail d'un chantier (dates réelles, motif, horaires, restrictions) n'est publié que dans le PDF de chaque arrêté. L'intégration télécharge les PDF des arrêtés qui concernent vos zones (15 max par cycle), en extrait un résumé structuré et le met en cache définitivement — chaque PDF n'est lu qu'une seule fois. Le résumé alimente la carte map, la carte Lovelace et les attributs des capteurs.
 
-Les PDF étant océrisés par la Ville, l'extraction est tolérante aux fautes d'OCR ; en cas d'échec sur un champ, il est simplement omis.
+Les PDF étant océrisés par la Ville, l'extraction est tolérante aux fautes d'OCR et restaure les accents et apostrophes des mots courants (« réfection », « déménagement », « d'une »…) ; en cas d'échec sur un champ, il est simplement omis.
+
+Dans les arrêtés couvrant plusieurs rues, la carte Lovelace affiche **en gras les rues qui relèvent de vos zones de veille** — les autres restent en gris.
 
 ## Carte Lovelace
 

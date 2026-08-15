@@ -64,8 +64,32 @@ def test_demandeur_particulier():
     assert parser_resume(DEMENAGEMENT)["demandeur"] == "madame zanouda senia"
 
 
-def test_motif_travaux():
-    assert parser_resume(TRAVAUX)["motif"] == "des travaux de refection des enrobes"
+def test_motif_travaux_nettoye():
+    # Le nettoyage OCR restaure les accents du lexique
+    assert parser_resume(TRAVAUX)["motif"] == "des travaux de réfection des enrobés"
+
+
+def test_nettoyage_apostrophes():
+    texte = (
+        "Considerant que des travaux de remplacement du cadre dune chambre "
+        "orange rendent necessaire d'arreter la reglementation"
+    )
+    assert (
+        parser_resume(texte)["motif"]
+        == "des travaux de remplacement du cadre d'une chambre orange"
+    )
+
+
+def test_nettoyage_motif_demenagement():
+    assert parser_resume(DEMENAGEMENT)["motif"] == "un déménagement"
+
+
+def test_numero_dans_la_rue():
+    assert parser_resume(DEMENAGEMENT)["numeros"] == ["44"]
+
+
+def test_numeros_absents():
+    assert parser_resume(TRAVAUX)["numeros"] == []
 
 
 def test_motif_sans_que():

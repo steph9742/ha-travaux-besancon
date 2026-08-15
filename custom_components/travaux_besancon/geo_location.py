@@ -123,12 +123,13 @@ class TravauxGeolocationEvent(CoordinatorEntity[TravauxCoordinator], Geolocation
             "type": TYPE_LABELS.get(arrete["type"], arrete["type"]),
             "rue": self.rue.title(),
             "quartiers": [q.title() for q in arrete["quartiers"]],
-            "date_publication": arrete["date_publication"],
             "url_pdf": arrete["url_pdf"],
             "integration": DOMAIN,
         }
         if resume.get("motif"):
             attrs["motif"] = resume["motif"].capitalize()
+        if resume.get("numeros"):
+            attrs["au_niveau"] = "n°" + ", ".join(resume["numeros"])
         if resume.get("date_debut"):
             attrs["du"] = resume["date_debut"]
         if resume.get("date_fin"):

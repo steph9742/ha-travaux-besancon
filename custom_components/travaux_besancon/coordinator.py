@@ -220,6 +220,8 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _parser_actes(self, racine) -> dict[str, dict[str, Any]]:
         arretes: dict[str, dict[str, Any]] = {}
+        rues_conf = set(self.rues_suivies)
+        quartiers_conf = set(self.quartiers_suivis)
         for acte in racine.iter("acte"):
             aid = acte.get("id", "")
             titre = (acte.findtext("titre") or "").strip()
@@ -237,6 +239,14 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "type": type_arrete(titre),
                 "rues": rues,
                 "quartiers": quartiers,
+                # Rues de l'arrêté qui relèvent des zones de veille (rue suivie
+                # directement, ou située dans un quartier suivi) — permet à la
+                # carte de les mettre en évidence dans les arrêtés multi-rues.
+                "rues_suivies": [
+                    r for r in rues
+                    if r in rues_conf
+                    or quartiers_conf & set(self.referentiel.quartiers_de(r))
+                ],
                 "coordonnees": {r: self.geo[r] for r in rues if r in self.geo},
                 "date_publication": (acte.findtext("datePublication") or "").strip(),
                 "date_acte": (acte.findtext("dateActe") or "").strip(),

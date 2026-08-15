@@ -157,7 +157,18 @@ class TravauxBesanconCard extends HTMLElement {
     const cfg   = this._config;
     const type  = a.type || "autre";
     const color = COLORS[type] || COLORS.autre;
-    const rues  = (a.rues || []).map(titreCase).join(", ") || esc(a.titre);
+
+    // Les rues qui relèvent des zones suivies passent en tête, en gras
+    const suivies = new Set(a.rues_suivies || []);
+    const ordonnees = [...(a.rues || [])].sort(
+      (x, y) => suivies.has(y) - suivies.has(x),
+    );
+    const rues = ordonnees.length
+      ? ordonnees.map((r) => suivies.has(r)
+          ? `<span class="tb-rue-suivie">${esc(titreCase(r))}</span>`
+          : esc(titreCase(r))).join(", ")
+      : esc(a.titre);
+
     const quartiers = cfg.show_quartiers && (a.quartiers || []).length
       ? ` · ${a.quartiers.map(titreCase).join(", ")}`
       : "";
@@ -168,10 +179,15 @@ class TravauxBesanconCard extends HTMLElement {
            title="Ouvrir l'arrêté (PDF)"><ha-icon icon="mdi:file-pdf-box"></ha-icon></a>`
       : "";
 
-    // Résumé extrait du PDF (motif, période réelle du chantier, horaires)
+    // Résumé extrait du PDF (motif, numéro, période réelle du chantier, horaires)
     const res = a.resume || {};
     const morceaux = [];
     if (res.motif) morceaux.push(res.motif.charAt(0).toUpperCase() + res.motif.slice(1));
+    if (res.numeros?.length) {
+      morceaux.push(res.numeros.length > 1
+        ? `aux n°${res.numeros.join(", ")}`
+        : `au n°${res.numeros[0]}`);
+    }
     if (res.date_debut && res.date_fin) {
       morceaux.push(res.date_debut === res.date_fin
         ? `le ${dateFr(res.date_debut)}`
@@ -181,16 +197,19 @@ class TravauxBesanconCard extends HTMLElement {
     const resume = morceaux.length
       ? `<div class="tb-resume">${esc(morceaux.join(" · "))}</div>` : "";
 
+    // Seules les dates du chantier comptent ; la date de publication ne sert
+    // que de repli tant que le PDF n'a pas encore été résumé.
+    const repli = res.date_debut ? "" : ` · publié le ${dateFr(a.date_publication)}`;
+
     return `
       <div class="tb-row">
         <div class="tb-badge" style="background:${color}1a;color:${color}">
           <ha-icon icon="${TYPE_ICONS[type]}"></ha-icon>
         </div>
         <div class="tb-corps">
-          <div class="tb-rues">${esc(rues)} ${nouveau}</div>
+          <div class="tb-rues">${rues} ${nouveau}</div>
           <div class="tb-meta">
-            <span style="color:${color}">${TYPE_LABELS[type]}</span>
-            · ${dateFr(a.date_publication)}${esc(quartiers)}
+            <span style="color:${color}">${TYPE_LABELS[type]}</span>${esc(repli)}${esc(quartiers)}
           </div>
           ${resume}
         </div>
@@ -247,10 +266,11 @@ class TravauxBesanconCard extends HTMLElement {
           const type  = a.type || "autre";
           const color = COLORS[type] || COLORS.autre;
           const rues  = (a.rues || []).map(titreCase).join(", ") || esc(a.titre);
+          const date  = a.resume?.date_debut || a.date_publication;
           return `<div class="tb-mini">
             <span class="tb-mini-dot" style="background:${color}"></span>
             <span class="tb-mini-rue">${esc(rues)}</span>
-            <span class="tb-mini-date">${dateFr(a.date_publication)}</span>
+            <span class="tb-mini-date">${dateFr(date)}</span>
           </div>`;
         }).join("")
       : `<div class="tb-mini tb-mini-ok">
@@ -293,8 +313,11 @@ class TravauxBesanconCard extends HTMLElement {
       .tb-badge ha-icon { --mdc-icon-size: 20px; }
       .tb-corps { flex: 1; min-width: 0; }
       .tb-rues {
-        font-size: 14px; font-weight: 500; color: var(--primary-text-color);
+        font-size: 14px; font-weight: 400; color: var(--secondary-text-color);
         overflow: hidden; text-overflow: ellipsis;
+      }
+      .tb-rues .tb-rue-suivie, .tb-rues:not(:has(.tb-rue-suivie)) {
+        font-weight: 600; color: var(--primary-text-color);
       }
       .tb-meta {
         font-size: 12px; color: var(--secondary-text-color); margin-top: 2px;
