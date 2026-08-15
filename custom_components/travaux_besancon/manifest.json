@@ -1,0 +1,13 @@
+{
+  "domain": "travaux_besancon",
+  "name": "Travaux Besançon",
+  "codeowners": ["@steph9742"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http"],
+  "documentation": "https://github.com/steph9742/ha-travaux-besancon",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/steph9742/ha-travaux-besancon/issues",
+  "requirements": ["defusedxml>=0.7.1", "pypdf>=4.0.0"],
+  "version": "1.1.0"
+}

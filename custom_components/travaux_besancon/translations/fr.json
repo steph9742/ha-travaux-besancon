@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Travaux Besançon",
+        "description": "Choisissez les zones à surveiller : toute la ville, des quartiers ou des rues précises. Un arrêté temporaire de circulation ou de stationnement touchant une zone suivie déclenchera une alerte.",
+        "data": {
+          "toute_la_ville": "Surveiller toute la ville",
+          "quartiers": "Quartiers surveillés",
+          "rues": "Rues surveillées",
+          "jours_expiration": "Durée d'affichage d'un arrêté (jours)"
+        },
+        "data_description": {
+          "jours_expiration": "Le flux officiel ne donne pas la date de fin des chantiers : un arrêté reste « actif » ce nombre de jours après sa publication."
+        }
+      }
+    },
+    "error": {
+      "aucune_zone": "Sélectionnez au moins une zone : la ville, un quartier ou une rue."
+    },
+    "abort": {
+      "already_configured": "L'intégration est déjà configurée. Modifiez les zones via les options."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Zones de veille",
+        "data": {
+          "toute_la_ville": "Surveiller toute la ville",
+          "quartiers": "Quartiers surveillés",
+          "rues": "Rues surveillées",
+          "jours_expiration": "Durée d'affichage d'un arrêté (jours)"
+        }
+      }
+    },
+    "error": {
+      "aucune_zone": "Sélectionnez au moins une zone : la ville, un quartier ou une rue."
+    }
+  }
+}

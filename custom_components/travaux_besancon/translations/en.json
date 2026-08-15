@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Travaux Besançon",
+        "description": "Choose the areas to watch: the whole city, districts, or specific streets. A temporary traffic or parking order affecting a watched area will trigger an alert.",
+        "data": {
+          "toute_la_ville": "Watch the whole city",
+          "quartiers": "Watched districts",
+          "rues": "Watched streets",
+          "jours_expiration": "How long an order stays active (days)"
+        },
+        "data_description": {
+          "jours_expiration": "The official feed does not provide roadwork end dates: an order is considered active for this many days after publication."
+        }
+      }
+    },
+    "error": {
+      "aucune_zone": "Select at least one area: the city, a district, or a street."
+    },
+    "abort": {
+      "already_configured": "The integration is already configured. Edit the watched areas in the options."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Watched areas",
+        "data": {
+          "toute_la_ville": "Watch the whole city",
+          "quartiers": "Watched districts",
+          "rues": "Watched streets",
+          "jours_expiration": "How long an order stays active (days)"
+        }
+      }
+    },
+    "error": {
+      "aucune_zone": "Select at least one area: the city, a district, or a street."
+    }
+  }
+}

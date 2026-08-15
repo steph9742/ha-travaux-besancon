@@ -1,0 +1,316 @@
+# custom_components/travaux_besancon/coordinator.py
+from __future__ import annotations
+
+import logging
+from datetime import date, timedelta
+from typing import Any
+
+import aiohttp
+from defusedxml import ElementTree
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util, slugify
+
+from .const import (
+    CONF_JOURS_EXPIRATION,
+    CONF_QUARTIERS,
+    CONF_RUES,
+    CONF_TOUTE_LA_VILLE,
+    DEFAUT_JOURS_EXPIRATION,
+    DOMAIN,
+    EVENEMENT_NOUVEL_ARRETE,
+    MAX_PDF_PAR_REFRESH,
+    SCAN_INTERVAL_HEURES,
+    URL_ACTES,
+)
+from .matching import extraire_rues, normaliser, type_arrete
+from .pdf_resume import parser_resume, texte_depuis_pdf
+from .referentiel import Referentiel, charger_embarque, charger_geo, rafraichir_depuis_csv
+
+_LOGGER = logging.getLogger(__name__)
+
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
+# Durée de rétention des ids d'arrêtés déjà vus (bien au-delà de la fenêtre d'affichage)
+RETENTION_VUS = timedelta(days=400)
+
+ZONE_VILLE = "ville"
+
+
+class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Surveille le flux des arrêtés de voirie de la Ville de Besançon.
+
+    Cycle de vie :
+      1. Premier refresh : charge le référentiel rues/quartiers (embarqué,
+         puis tentative de rafraîchissement depuis le CSV officiel) et la
+         mémoire des arrêtés déjà vus (Store HA).
+      2. Chaque refresh : télécharge le flux XML, matche les titres contre
+         les zones suivies (ville / quartiers / rues), déclenche un événement
+         par nouvel arrêté correspondant.
+
+    Le flux ne publie que le mois courant et ne donne pas la date de fin des
+    chantiers : un arrêté est considéré « actif » pendant jours_expiration
+    jours après sa publication.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.entry = entry
+        self._session = async_get_clientsession(hass)
+        self._store: Store = Store(hass, 1, f"{DOMAIN}_arretes_vus")
+        # {id d'acte: date ISO de première détection}
+        self._vus: dict[str, str] = {}
+        self._store_resumes: Store = Store(hass, 1, f"{DOMAIN}_resumes")
+        # {id d'acte: résumé extrait du PDF} — cache persistant, un PDF n'est lu qu'une fois
+        self._resumes: dict[str, dict] = {}
+        self._initialise = False
+        self._premiere_synchro = False
+        self.referentiel: Referentiel | None = None
+        self.geo: dict[str, list[float]] = {}
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            name="Travaux Besançon",
+            update_interval=timedelta(hours=SCAN_INTERVAL_HEURES),
+        )
+
+    # ------------------------------------------------------------------
+    # Configuration (options prioritaires sur data)
+    # ------------------------------------------------------------------
+
+    def _conf(self, cle: str, defaut: Any) -> Any:
+        if cle in self.entry.options:
+            return self.entry.options[cle]
+        return self.entry.data.get(cle, defaut)
+
+    @property
+    def toute_la_ville(self) -> bool:
+        return bool(self._conf(CONF_TOUTE_LA_VILLE, False))
+
+    @property
+    def quartiers_suivis(self) -> list[str]:
+        return [normaliser(q) for q in self._conf(CONF_QUARTIERS, [])]
+
+    @property
+    def rues_suivies(self) -> list[str]:
+        return [normaliser(r) for r in self._conf(CONF_RUES, [])]
+
+    @property
+    def jours_expiration(self) -> int:
+        return int(self._conf(CONF_JOURS_EXPIRATION, DEFAUT_JOURS_EXPIRATION))
+
+    def zones(self) -> dict[str, dict[str, str]]:
+        """Zones de veille : {zone_id: {type, nom}}."""
+        zones: dict[str, dict[str, str]] = {}
+        if self.toute_la_ville:
+            zones[ZONE_VILLE] = {"type": "ville", "nom": "Ville de Besançon"}
+        for quartier in self.quartiers_suivis:
+            zones[f"quartier_{slugify(quartier)}"] = {"type": "quartier", "nom": quartier}
+        for rue in self.rues_suivies:
+            zones[f"rue_{slugify(rue)}"] = {"type": "rue", "nom": rue}
+        return zones
+
+    # ------------------------------------------------------------------
+    # Initialisation (référentiel + mémoire des arrêtés vus)
+    # ------------------------------------------------------------------
+
+    async def _initialiser(self) -> None:
+        self.referentiel = await self.hass.async_add_executor_job(charger_embarque)
+        self.geo = await self.hass.async_add_executor_job(charger_geo)
+
+        distant = await rafraichir_depuis_csv(self._session)
+        if distant is not None:
+            self.referentiel = distant
+            _LOGGER.debug(
+                "Référentiel rafraîchi depuis le CSV officiel (%d rues)",
+                len(distant.rues),
+            )
+
+        memoire = await self._store.async_load()
+        if memoire is None:
+            # Première installation : les arrêtés du flux seront mémorisés
+            # sans déclencher d'événements (évite une rafale de notifications).
+            self._premiere_synchro = True
+        else:
+            self._vus = memoire.get("vus", {})
+
+        resumes = await self._store_resumes.async_load()
+        if resumes is not None:
+            self._resumes = resumes.get("resumes", {})
+
+        self._initialise = True
+
+    async def _sauvegarder_vus(self) -> None:
+        limite = (dt_util.now() - RETENTION_VUS).date().isoformat()
+        self._vus = {i: d for i, d in self._vus.items() if d >= limite}
+        await self._store.async_save({"vus": self._vus})
+
+    # ------------------------------------------------------------------
+    # Refresh principal
+    # ------------------------------------------------------------------
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        if not self._initialise:
+            await self._initialiser()
+
+        try:
+            async with self._session.get(URL_ACTES, timeout=REQUEST_TIMEOUT) as resp:
+                resp.raise_for_status()
+                brut = await resp.text()
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise UpdateFailed(f"Erreur réseau flux des actes: {err}") from err
+
+        try:
+            racine = ElementTree.fromstring(brut)
+        except ElementTree.ParseError as err:
+            raise UpdateFailed(f"Flux des actes illisible: {err}") from err
+
+        arretes = self._parser_actes(racine)
+        actifs = self._filtrer_actifs(arretes)
+        par_zone = self._matcher_zones(actifs)
+
+        suivis = sorted(
+            {aid for ids in par_zone.values() for aid in ids},
+            key=lambda aid: actifs[aid]["date_publication"],
+            reverse=True,
+        )
+
+        await self._resumer_pdfs(actifs, suivis)
+        for aid in actifs:
+            actifs[aid]["resume"] = self._resumes.get(aid)
+
+        nouveaux = [aid for aid in suivis if aid not in self._vus]
+        if nouveaux:
+            aujourd_hui = dt_util.now().date().isoformat()
+            for aid in nouveaux:
+                self._vus[aid] = aujourd_hui
+            await self._sauvegarder_vus()
+
+            if self._premiere_synchro:
+                _LOGGER.info(
+                    "Première synchronisation: %d arrêtés mémorisés sans notification",
+                    len(nouveaux),
+                )
+            else:
+                for aid in nouveaux:
+                    zones_touchees = [z for z, ids in par_zone.items() if aid in ids]
+                    self.hass.bus.async_fire(
+                        EVENEMENT_NOUVEL_ARRETE,
+                        {**actifs[aid], "zones": zones_touchees},
+                    )
+        if self._premiere_synchro:
+            self._premiere_synchro = False
+            nouveaux = []
+
+        return {
+            "arretes": actifs,
+            "suivis": suivis,
+            "par_zone": par_zone,
+            "nouveaux": nouveaux,
+            "zones": self.zones(),
+        }
+
+    # ------------------------------------------------------------------
+    # Parsing et matching
+    # ------------------------------------------------------------------
+
+    def _parser_actes(self, racine) -> dict[str, dict[str, Any]]:
+        arretes: dict[str, dict[str, Any]] = {}
+        for acte in racine.iter("acte"):
+            aid = acte.get("id", "")
+            titre = (acte.findtext("titre") or "").strip()
+            domaine = (acte.findtext("domaine") or "").strip()
+            if not aid or not titre or domaine != "Voirie":
+                continue
+
+            rues = extraire_rues(titre, self.referentiel.rues)
+            quartiers = sorted(
+                {q for r in rues for q in self.referentiel.quartiers_de(r)}
+            )
+            arretes[aid] = {
+                "id": aid,
+                "titre": titre,
+                "type": type_arrete(titre),
+                "rues": rues,
+                "quartiers": quartiers,
+                "coordonnees": {r: self.geo[r] for r in rues if r in self.geo},
+                "date_publication": (acte.findtext("datePublication") or "").strip(),
+                "date_acte": (acte.findtext("dateActe") or "").strip(),
+                "url_pdf": (acte.findtext("fichier") or "").strip(),
+            }
+        return arretes
+
+    def _filtrer_actifs(
+        self, arretes: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        limite = (
+            dt_util.now().date() - timedelta(days=self.jours_expiration)
+        ).isoformat()
+        actifs = {}
+        for aid, arrete in arretes.items():
+            publication = arrete["date_publication"]
+            if not publication:
+                continue
+            try:
+                date.fromisoformat(publication)
+            except ValueError:
+                continue
+            if publication >= limite:
+                actifs[aid] = arrete
+        return actifs
+
+    async def _resumer_pdfs(
+        self, actifs: dict[str, dict[str, Any]], suivis: list[str]
+    ) -> None:
+        """Télécharge et résume les PDF des arrêtés suivis (avec cache persistant)."""
+        a_faire = [aid for aid in suivis if aid not in self._resumes][
+            :MAX_PDF_PAR_REFRESH
+        ]
+        if not a_faire:
+            return
+
+        for aid in a_faire:
+            url = actifs[aid]["url_pdf"]
+            if not url:
+                continue
+            try:
+                async with self._session.get(url, timeout=REQUEST_TIMEOUT) as resp:
+                    resp.raise_for_status()
+                    contenu = await resp.read()
+            except (aiohttp.ClientError, TimeoutError) as err:
+                _LOGGER.debug("PDF %s inaccessible (%s), nouvel essai au prochain refresh", aid, err)
+                continue
+            try:
+                texte = await self.hass.async_add_executor_job(texte_depuis_pdf, contenu)
+                self._resumes[aid] = parser_resume(texte)
+            except Exception:  # PDF corrompu ou illisible : ne pas réessayer en boucle
+                _LOGGER.warning("Impossible de résumer le PDF de l'arrêté %s", aid)
+                self._resumes[aid] = {}
+
+        # Purge : ne garder que les résumés d'arrêtés encore en mémoire
+        self._resumes = {
+            aid: r for aid, r in self._resumes.items()
+            if aid in self._vus or aid in actifs
+        }
+        await self._store_resumes.async_save({"resumes": self._resumes})
+
+    def _matcher_zones(
+        self, actifs: dict[str, dict[str, Any]]
+    ) -> dict[str, list[str]]:
+        par_zone: dict[str, list[str]] = {zid: [] for zid in self.zones()}
+
+        for aid, arrete in actifs.items():
+            if ZONE_VILLE in par_zone:
+                par_zone[ZONE_VILLE].append(aid)
+            for quartier in self.quartiers_suivis:
+                if quartier in arrete["quartiers"]:
+                    par_zone[f"quartier_{slugify(quartier)}"].append(aid)
+            for rue in self.rues_suivies:
+                if rue in arrete["rues"]:
+                    par_zone[f"rue_{slugify(rue)}"].append(aid)
+
+        return par_zone
