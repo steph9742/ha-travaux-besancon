@@ -2,7 +2,7 @@
 // Carte Lovelace Travaux Besançon — fil des arrêtés de voirie sur les zones suivies.
 // Deux modes : « flux » (liste détaillée) et « compact » (compteur + dernières alertes).
 
-const TB_VERSION = "1.2.0";
+const TB_VERSION = "1.3.0";
 
 const COLORS = {
   primary:       "#e67e22",
@@ -182,9 +182,11 @@ class TravauxBesanconCard extends HTMLElement {
     const type  = a.type || "autre";
     const color = COLORS[type] || COLORS.autre;
 
-    // Les rues qui relèvent des zones suivies passent en tête, en gras
+    // Seules les rues réellement en travaux sont affichées en titre ;
+    // celles des zones suivies passent en tête, en gras
     const suivies = new Set(a.rues_suivies || []);
-    const ordonnees = [...(a.rues || [])].sort(
+    const listeRues = a.rues_travaux?.length ? a.rues_travaux : (a.rues || []);
+    const ordonnees = [...listeRues].sort(
       (x, y) => suivies.has(y) - suivies.has(x),
     );
     const rues = ordonnees.length
@@ -221,6 +223,12 @@ class TravauxBesanconCard extends HTMLElement {
     const resume = morceaux.length
       ? `<div class="tb-resume">${esc(morceaux.join(" · "))}</div>` : "";
 
+    // Rues citées uniquement comme itinéraire de déviation
+    const deviation = a.rues_deviation?.length
+      ? `<div class="tb-deviation"><ha-icon icon="mdi:directions-fork"></ha-icon>
+           Déviation par ${esc(a.rues_deviation.map(titreCase).join(", "))}</div>`
+      : "";
+
     // Seules les dates du chantier comptent ; la date de publication ne sert
     // que de repli tant que le PDF n'a pas encore été résumé.
     const repli = res.date_debut ? "" : ` · publié le ${dateFr(a.date_publication)}`;
@@ -236,6 +244,7 @@ class TravauxBesanconCard extends HTMLElement {
             <span style="color:${color}">${TYPE_LABELS[type]}</span>${esc(repli)}${esc(quartiers)}
           </div>
           ${resume}
+          ${deviation}
         </div>
         ${pdf}
       </div>`;
@@ -434,6 +443,7 @@ class TravauxBesanconCard extends HTMLElement {
     }
     if (a.horaires) lignes.push(["mdi:clock-outline", a.horaires]);
     if (a.au_niveau) lignes.push(["mdi:map-marker", `Au niveau du ${a.au_niveau}`]);
+    if (a.deviation_par) lignes.push(["mdi:directions-fork", `Déviation par ${a.deviation_par}`]);
     if (a.restrictions) lignes.push(["mdi:alert-octagon-outline", a.restrictions]);
     if (a.demandeur) lignes.push(["mdi:account-hard-hat", a.demandeur]);
     if (a.quartiers?.length) lignes.push(["mdi:map", a.quartiers.join(", ")]);
@@ -513,6 +523,11 @@ class TravauxBesanconCard extends HTMLElement {
         font-size: 12px; color: var(--secondary-text-color); margin-top: 2px;
         font-style: italic; overflow: hidden; text-overflow: ellipsis;
       }
+      .tb-deviation {
+        font-size: 11px; color: var(--disabled-text-color, var(--secondary-text-color));
+        margin-top: 2px; overflow: hidden; text-overflow: ellipsis;
+      }
+      .tb-deviation ha-icon { --mdc-icon-size: 13px; vertical-align: text-bottom; }
       .tb-nouveau {
         display: inline-block; margin-left: 6px; padding: 1px 7px;
         border-radius: 9px; font-size: 10px; font-weight: 700;

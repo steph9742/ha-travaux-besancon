@@ -41,6 +41,8 @@ Les données proviennent du flux officiel des actes de la Ville publié sur le p
 
 Tout se fait dans l'interface : cochez **toute la ville**, choisissez des **quartiers** et/ou des **rues**. Les zones sont modifiables à tout moment via **Configurer** sur l'intégration.
 
+L'intégration distingue les rues **réellement en travaux** de celles citées seulement comme **itinéraire de déviation** (analyse du PDF de l'arrêté). Par défaut, seuls les vrais chantiers déclenchent les alertes ; l'option **« Alerter aussi pour les déviations »** permet d'être prévenu quand une déviation traverse vos zones (trafic reporté).
+
 Le flux officiel ne publie pas la date de fin des chantiers (elle n'est que dans le PDF) : un arrêté est considéré « actif » pendant une durée réglable après sa publication (**14 jours par défaut**).
 
 ## Entités
@@ -79,7 +81,7 @@ Le payload de l'événement contient : `id`, `titre`, `type` (`circulation` / `s
 
 ## Carte des chantiers (map)
 
-Chaque arrêté actif sur vos zones devient un **marqueur géolocalisé** (pastille cône, colorée selon le type : orange circulation, bleu stationnement). Deux façons de l'afficher :
+Chaque arrêté actif sur vos zones devient un **marqueur géolocalisé** (pastille cône, colorée selon le type : orange circulation, bleu stationnement). Les marqueurs ne sont posés que sur les rues **réellement en travaux** — pas sur les itinéraires de déviation — et quand l'arrêté précise un numéro (déménagement, échafaudage), le marqueur est placé **sur l'immeuble** grâce au géocodage de l'adresse (BAN). Deux façons de l'afficher :
 
 **Recommandé — le mode carte de la carte incluse**, avec un panneau de détail intégré : un clic sur un marqueur affiche directement le chantier — type, motif (« travaux de réfection des enrobés »…), période réelle, horaires (« de 8h00 à 17h00 », « de nuit »…), numéro dans la rue, restrictions, demandeur, quartiers et bouton vers le PDF :
 
@@ -107,7 +109,7 @@ Le détail d'un chantier (dates réelles, motif, horaires, restrictions) n'est p
 
 Les PDF étant océrisés par la Ville, l'extraction est tolérante aux fautes d'OCR et restaure les accents et apostrophes des mots courants (« réfection », « déménagement », « d'une »…) ; en cas d'échec sur un champ, il est simplement omis.
 
-Dans les arrêtés couvrant plusieurs rues, la carte Lovelace affiche **en gras les rues qui relèvent de vos zones de veille** — les autres restent en gris.
+Dans les arrêtés couvrant plusieurs rues, la carte Lovelace affiche **en gras les rues qui relèvent de vos zones de veille** — les autres restent en gris — et relègue les itinéraires de déviation sur une ligne discrète « Déviation par… ».
 
 ## Carte Lovelace
 

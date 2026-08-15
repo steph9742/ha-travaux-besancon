@@ -24,6 +24,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_INCLURE_DEVIATIONS,
     CONF_JOURS_EXPIRATION,
     CONF_QUARTIERS,
     CONF_RUES,
@@ -68,6 +69,10 @@ def _schema(referentiel: Referentiel, defauts: dict[str, Any]) -> vol.Schema:
                 )
             ),
             vol.Optional(
+                CONF_INCLURE_DEVIATIONS,
+                default=defauts.get(CONF_INCLURE_DEVIATIONS, False),
+            ): BooleanSelector(),
+            vol.Optional(
                 CONF_JOURS_EXPIRATION,
                 default=defauts.get(CONF_JOURS_EXPIRATION, DEFAUT_JOURS_EXPIRATION),
             ): NumberSelector(
@@ -99,6 +104,9 @@ def _normaliser_input(user_input: dict[str, Any]) -> dict[str, Any]:
         CONF_TOUTE_LA_VILLE: bool(user_input.get(CONF_TOUTE_LA_VILLE, False)),
         CONF_QUARTIERS: user_input.get(CONF_QUARTIERS, []),
         CONF_RUES: user_input.get(CONF_RUES, []),
+        CONF_INCLURE_DEVIATIONS: bool(
+            user_input.get(CONF_INCLURE_DEVIATIONS, False)
+        ),
         CONF_JOURS_EXPIRATION: int(
             user_input.get(CONF_JOURS_EXPIRATION, DEFAUT_JOURS_EXPIRATION)
         ),

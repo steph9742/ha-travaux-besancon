@@ -16,6 +16,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util, slugify
 
 from .const import (
+    CODE_INSEE,
+    CONF_INCLURE_DEVIATIONS,
     CONF_JOURS_EXPIRATION,
     CONF_QUARTIERS,
     CONF_RUES,
@@ -26,6 +28,7 @@ from .const import (
     MAX_PDF_PAR_REFRESH,
     SCAN_INTERVAL_HEURES,
     URL_ACTES,
+    URL_BAN,
 )
 from .matching import extraire_rues, normaliser, type_arrete
 from .pdf_resume import parser_resume, texte_depuis_pdf
@@ -103,6 +106,10 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def jours_expiration(self) -> int:
         return int(self._conf(CONF_JOURS_EXPIRATION, DEFAUT_JOURS_EXPIRATION))
 
+    @property
+    def inclure_deviations(self) -> bool:
+        return bool(self._conf(CONF_INCLURE_DEVIATIONS, False))
+
     def zones(self) -> dict[str, dict[str, str]]:
         """Zones de veille : {zone_id: {type, nom}}."""
         zones: dict[str, dict[str, str]] = {}
@@ -171,17 +178,21 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         arretes = self._parser_actes(racine)
         actifs = self._filtrer_actifs(arretes)
-        par_zone = self._matcher_zones(actifs)
 
+        # Matching préliminaire sur les rues du titre : détermine quels PDF
+        # lire. Le matching final se fait ensuite sur les rues classées
+        # (travaux vs déviation) extraites de ces PDF.
+        prelim = self._matcher_zones(actifs)
+        suivis_prelim = {aid for ids in prelim.values() for aid in ids}
+        await self._resumer_pdfs(actifs, sorted(suivis_prelim))
+        self._enrichir(actifs)
+
+        par_zone = self._matcher_zones(actifs)
         suivis = sorted(
             {aid for ids in par_zone.values() for aid in ids},
             key=lambda aid: actifs[aid]["date_publication"],
             reverse=True,
         )
-
-        await self._resumer_pdfs(actifs, suivis)
-        for aid in actifs:
-            actifs[aid]["resume"] = self._resumes.get(aid)
 
         nouveaux = [aid for aid in suivis if aid not in self._vus]
         if nouveaux:
@@ -220,8 +231,6 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _parser_actes(self, racine) -> dict[str, dict[str, Any]]:
         arretes: dict[str, dict[str, Any]] = {}
-        rues_conf = set(self.rues_suivies)
-        quartiers_conf = set(self.quartiers_suivis)
         for acte in racine.iter("acte"):
             aid = acte.get("id", "")
             titre = (acte.findtext("titre") or "").strip()
@@ -239,15 +248,6 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "type": type_arrete(titre),
                 "rues": rues,
                 "quartiers": quartiers,
-                # Rues de l'arrêté qui relèvent des zones de veille (rue suivie
-                # directement, ou située dans un quartier suivi) — permet à la
-                # carte de les mettre en évidence dans les arrêtés multi-rues.
-                "rues_suivies": [
-                    r for r in rues
-                    if r in rues_conf
-                    or quartiers_conf & set(self.referentiel.quartiers_de(r))
-                ],
-                "coordonnees": {r: self.geo[r] for r in rues if r in self.geo},
                 "date_publication": (acte.findtext("datePublication") or "").strip(),
                 "date_acte": (acte.findtext("dateActe") or "").strip(),
                 "url_pdf": (acte.findtext("fichier") or "").strip(),
@@ -273,15 +273,61 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 actifs[aid] = arrete
         return actifs
 
+    async def _geocoder_adresse(self, numero: str, rue: str) -> list[float] | None:
+        """Coordonnées BAN du numéro dans la rue, ou None si introuvable."""
+        try:
+            async with self._session.get(
+                URL_BAN,
+                params={
+                    "q": f"{numero} {rue}",
+                    "citycode": CODE_INSEE,
+                    "type": "housenumber",
+                    "limit": 1,
+                },
+                timeout=REQUEST_TIMEOUT,
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+        except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+            _LOGGER.debug("Géocodage BAN de « %s %s » impossible: %s", numero, rue, err)
+            return None
+
+        features = data.get("features") or []
+        if not features:
+            return None
+        props = features[0].get("properties", {})
+        if props.get("score", 0) < 0.6:
+            return None
+        lon, lat = features[0]["geometry"]["coordinates"]
+        return [round(lat, 6), round(lon, 6)]
+
+    async def _completer_adresse(self, aid: str, arrete: dict[str, Any]) -> None:
+        """Géocode le numéro dans la rue (une seule tentative, résultat en cache)."""
+        resume = self._resumes.get(aid)
+        if (
+            not resume
+            or not resume.get("numeros")
+            or "adresse_coords" in resume
+        ):
+            return
+        rues = resume.get("rues_travaux") or arrete["rues"]
+        if len(rues) != 1:
+            return
+        resume["adresse_coords"] = await self._geocoder_adresse(
+            resume["numeros"][0], rues[0]
+        )
+
     async def _resumer_pdfs(
         self, actifs: dict[str, dict[str, Any]], suivis: list[str]
     ) -> None:
         """Télécharge et résume les PDF des arrêtés suivis (avec cache persistant)."""
-        a_faire = [aid for aid in suivis if aid not in self._resumes][
-            :MAX_PDF_PAR_REFRESH
-        ]
-        if not a_faire:
-            return
+        # Les résumés d'anciennes versions sans classification des rues sont
+        # relus pour en bénéficier (uniquement si l'arrêté cite des rues).
+        a_faire = [
+            aid for aid in suivis
+            if aid not in self._resumes
+            or (actifs[aid]["rues"] and "rues_travaux" not in self._resumes[aid])
+        ][:MAX_PDF_PAR_REFRESH]
 
         for aid in a_faire:
             url = actifs[aid]["url_pdf"]
@@ -296,10 +342,15 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             try:
                 texte = await self.hass.async_add_executor_job(texte_depuis_pdf, contenu)
-                self._resumes[aid] = parser_resume(texte)
+                self._resumes[aid] = parser_resume(texte, actifs[aid]["rues"])
             except Exception:  # PDF corrompu ou illisible : ne pas réessayer en boucle
                 _LOGGER.warning("Impossible de résumer le PDF de l'arrêté %s", aid)
                 self._resumes[aid] = {}
+
+        # Géocodage du numéro dans la rue (nouveaux résumés et cache existant)
+        for aid in suivis:
+            if aid in actifs:
+                await self._completer_adresse(aid, actifs[aid])
 
         # Purge : ne garder que les résumés d'arrêtés encore en mémoire
         self._resumes = {
@@ -308,19 +359,65 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
         await self._store_resumes.async_save({"resumes": self._resumes})
 
+    def _enrichir(self, actifs: dict[str, dict[str, Any]]) -> None:
+        """Attache résumés, classification des rues, coordonnées et surlignage."""
+        rues_conf = set(self.rues_suivies)
+        quartiers_conf = set(self.quartiers_suivis)
+
+        for aid, arrete in actifs.items():
+            resume = self._resumes.get(aid)
+            arrete["resume"] = resume
+
+            if resume and "rues_travaux" in resume:
+                arrete["rues_travaux"] = resume["rues_travaux"]
+                arrete["rues_deviation"] = resume["rues_deviation"]
+            else:
+                # PDF pas encore lu : toutes les rues du titre par prudence
+                arrete["rues_travaux"] = arrete["rues"]
+                arrete["rues_deviation"] = []
+
+            alerte = list(arrete["rues_travaux"])
+            if self.inclure_deviations:
+                alerte += arrete["rues_deviation"]
+            arrete["rues_alerte"] = alerte
+            arrete["quartiers"] = sorted(
+                {q for r in alerte for q in self.referentiel.quartiers_de(r)}
+            )
+            # Rues mises en évidence par la carte : celles des zones de veille
+            arrete["rues_suivies"] = [
+                r for r in alerte
+                if r in rues_conf
+                or quartiers_conf & set(self.referentiel.quartiers_de(r))
+            ]
+
+            # Marqueurs : uniquement les rues réellement en travaux ; un numéro
+            # géocodé place le marqueur sur l'immeuble plutôt que sur la rue.
+            coords = {
+                r: self.geo[r] for r in arrete["rues_travaux"] if r in self.geo
+            }
+            if (
+                resume
+                and resume.get("adresse_coords")
+                and len(arrete["rues_travaux"]) == 1
+            ):
+                coords = {arrete["rues_travaux"][0]: resume["adresse_coords"]}
+            arrete["coordonnees"] = coords
+
     def _matcher_zones(
         self, actifs: dict[str, dict[str, Any]]
     ) -> dict[str, list[str]]:
         par_zone: dict[str, list[str]] = {zid: [] for zid in self.zones()}
 
         for aid, arrete in actifs.items():
+            rues = arrete.get("rues_alerte", arrete["rues"])
+            quartiers = arrete["quartiers"]
             if ZONE_VILLE in par_zone:
                 par_zone[ZONE_VILLE].append(aid)
             for quartier in self.quartiers_suivis:
-                if quartier in arrete["quartiers"]:
+                if quartier in quartiers:
                     par_zone[f"quartier_{slugify(quartier)}"].append(aid)
             for rue in self.rues_suivies:
-                if rue in arrete["rues"]:
+                if rue in rues:
                     par_zone[f"rue_{slugify(rue)}"].append(aid)
 
         return par_zone

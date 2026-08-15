@@ -3,16 +3,20 @@ DOMAIN = "travaux_besancon"
 
 URL_ACTES    = "https://datasets.grandbesancon.fr/actes.php?method=getActesVilleDeBesancon"
 URL_RUES_CSV = "https://datasets.grandbesancon.fr/fichiers/rues.csv"
+URL_BAN      = "https://api-adresse.data.gouv.fr/search/"
+CODE_INSEE   = "25056"
 
 # Le flux est mis à jour quelques fois par mois : 6 h de polling suffisent largement.
 SCAN_INTERVAL_HEURES = 6
 
 SIRET_VILLE = "21250056500016"
 
-CONF_TOUTE_LA_VILLE   = "toute_la_ville"
-CONF_QUARTIERS        = "quartiers"
-CONF_RUES             = "rues"
-CONF_JOURS_EXPIRATION = "jours_expiration"
+CONF_TOUTE_LA_VILLE      = "toute_la_ville"
+CONF_QUARTIERS           = "quartiers"
+CONF_RUES                = "rues"
+CONF_JOURS_EXPIRATION    = "jours_expiration"
+# Alerter aussi quand une zone n'est concernée que par un itinéraire de déviation
+CONF_INCLURE_DEVIATIONS  = "inclure_deviations"
 
 DEFAUT_JOURS_EXPIRATION = 14
 MIN_JOURS_EXPIRATION    = 1

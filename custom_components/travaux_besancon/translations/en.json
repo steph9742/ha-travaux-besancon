@@ -8,10 +8,12 @@
           "toute_la_ville": "Watch the whole city",
           "quartiers": "Watched districts",
           "rues": "Watched streets",
-          "jours_expiration": "How long an order stays active (days)"
+          "jours_expiration": "How long an order stays active (days)",
+          "inclure_deviations": "Also alert for detours"
         },
         "data_description": {
-          "jours_expiration": "The official feed does not provide roadwork end dates: an order is considered active for this many days after publication."
+          "jours_expiration": "The official feed does not provide roadwork end dates: an order is considered active for this many days after publication.",
+          "inclure_deviations": "An area only crossed by a detour route also triggers the alert (diverted traffic). Unchecked, only actual roadworks count."
         }
       }
     },
@@ -30,7 +32,11 @@
           "toute_la_ville": "Watch the whole city",
           "quartiers": "Watched districts",
           "rues": "Watched streets",
-          "jours_expiration": "How long an order stays active (days)"
+          "jours_expiration": "How long an order stays active (days)",
+          "inclure_deviations": "Also alert for detours"
+        },
+        "data_description": {
+          "inclure_deviations": "An area only crossed by a detour route also triggers the alert (diverted traffic). Unchecked, only actual roadworks count."
         }
       }
     },

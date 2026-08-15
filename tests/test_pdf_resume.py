@@ -56,12 +56,12 @@ circulation des vehicules est interdite. La vitesse sera limitee a 30 km/h.
 """
 
 
-def test_demandeur_entreprise():
-    assert parser_resume(TRAVAUX)["demandeur"] == "l'entreprise colas"
+def test_demandeur_entreprise_casse_preservee():
+    assert parser_resume(TRAVAUX)["demandeur"] == "l'entreprise COLAS"
 
 
-def test_demandeur_particulier():
-    assert parser_resume(DEMENAGEMENT)["demandeur"] == "madame zanouda senia"
+def test_demandeur_particulier_casse_preservee():
+    assert parser_resume(DEMENAGEMENT)["demandeur"] == "Madame Zanouda Senia"
 
 
 def test_motif_travaux_nettoye():
@@ -92,9 +92,9 @@ def test_numeros_absents():
     assert parser_resume(TRAVAUX)["numeros"] == []
 
 
-def test_motif_sans_que():
+def test_motif_sans_que_casse_preservee():
     r = parser_resume(EVENEMENT)
-    assert r["motif"].startswith("l'organisation de la cavalcade")
+    assert r["motif"].startswith("L'organisation de la Cavalcade de Saint Ferjeux")
 
 
 def test_periode_du_au():
@@ -140,6 +140,67 @@ def test_restrictions_empietement_et_pietons():
     r = parser_resume(TRAVAUX)["restrictions"]
     assert "empiétement sur chaussée" in r
     assert "cheminement piétons modifié" in r
+
+
+# Arrêté réel (OCR) où la plupart des rues du titre ne sont que des bornes
+# ou des itinéraires de déviation — seules Berthoud et Chaillot sont en travaux
+FERMETURE_AVEC_DEVIATIONS = """
+Article 1 : A compter du 24/08/2026 et jusqu'au 28/08/2026, la circulation des
+vehicules est interdite RUE FERDINAND BERTHOUD dans sa partie comprise
+entre l'AVENUE DE MONTJOUX et la RUE DE CHAILLOT dans ce sens a partir
+de 08h00 le 24/08.
+Une mise en impasse sera instauree RUE FERDINAND BERTHOUD en face du N°13.
+Article 3 : A compter du 24/08/2026 et jusqu'au 28/08/2026, la circulation des
+vehicules est interdite RUE DE CHAILLOT dans sa partie comprise entre la RUE
+FERDINAND BERTHOUD et l'ouvrage d'art en surplomb du BOULEVARD
+WINSTON CHURCHILL dans ce sens a partir de 08h00 le 24/08.
+Article 5 : A compter du 24/08/2026 et jusqu'au 28/08/2026, une deviation est
+mise en place pour tous les vehicules. Cette deviation emprunte l'itineraire suivant:
+• AVENUE DE MONTJOUX en direction de la bretelle de sortie du
+BOULEVARD WINSTON CHURCHILL
+• RUE DE VESOUL en direction de VESOUL
+• RUE DE CHAILLOT
+Article 6 : A compter du 24/08/2026 et jusqu'au 28/08/2026, une deviation est
+mise en place. Cette deviation emprunte l'itineraire suivant:
+• AVENUE COMMANDANT MARCEAU
+• RUE DE LA PREVOYANCE
+• AVENUE DE MONTJOUX en direction de la RUE DE CHAILLOT
+Article 8 : La signalisation reglementaire sera mise en place.
+"""
+
+RUES_FERMETURE = [
+    "RUE FERDINAND BERTHOUD",
+    "AVENUE DE MONTJOUX",
+    "RUE DE CHAILLOT",
+    "BOULEVARD WINSTON CHURCHILL",
+    "RUE DE VESOUL",
+    "AVENUE COMMANDANT MARCEAU",
+    "RUE DE LA PREVOYANCE",
+]
+
+
+def test_classification_travaux_vs_deviation():
+    r = parser_resume(FERMETURE_AVEC_DEVIATIONS, RUES_FERMETURE)
+    assert r["rues_travaux"] == ["RUE FERDINAND BERTHOUD", "RUE DE CHAILLOT"]
+    assert r["rues_deviation"] == [
+        "AVENUE DE MONTJOUX",
+        "BOULEVARD WINSTON CHURCHILL",
+        "RUE DE VESOUL",
+        "AVENUE COMMANDANT MARCEAU",
+        "RUE DE LA PREVOYANCE",
+    ]
+
+
+def test_classification_sans_indice_reste_travaux():
+    # Sans PDF exploitable, chaque rue reste « en travaux » par prudence
+    r = parser_resume("Texte sans rien d'utile", ["RUE DES SAPINS"])
+    assert r["rues_travaux"] == ["RUE DES SAPINS"]
+    assert r["rues_deviation"] == []
+
+
+def test_classification_absente_sans_rues():
+    r = parser_resume(TRAVAUX)
+    assert "rues_travaux" not in r
 
 
 def test_texte_vide():

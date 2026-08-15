@@ -132,9 +132,14 @@ class TravauxGeolocationEvent(CoordinatorEntity[TravauxCoordinator], Geolocation
             "integration": DOMAIN,
         }
         if resume.get("motif"):
-            attrs["motif"] = resume["motif"].capitalize()
+            motif = resume["motif"]
+            attrs["motif"] = motif[0].upper() + motif[1:]
         if resume.get("numeros"):
             attrs["au_niveau"] = "n°" + ", ".join(resume["numeros"])
+        if arrete.get("rues_deviation"):
+            attrs["deviation_par"] = ", ".join(
+                r.title() for r in arrete["rues_deviation"]
+            )
         if resume.get("date_debut"):
             attrs["du"] = resume["date_debut"]
         if resume.get("date_fin"):
@@ -146,5 +151,6 @@ class TravauxGeolocationEvent(CoordinatorEntity[TravauxCoordinator], Geolocation
         if resume.get("restrictions"):
             attrs["restrictions"] = ", ".join(resume["restrictions"])
         if resume.get("demandeur"):
-            attrs["demandeur"] = resume["demandeur"].title()
+            demandeur = resume["demandeur"]
+            attrs["demandeur"] = demandeur[0].upper() + demandeur[1:]
         return attrs

@@ -8,10 +8,12 @@
           "toute_la_ville": "Surveiller toute la ville",
           "quartiers": "Quartiers surveillés",
           "rues": "Rues surveillées",
-          "jours_expiration": "Durée d'affichage d'un arrêté (jours)"
+          "jours_expiration": "Durée d'affichage d'un arrêté (jours)",
+          "inclure_deviations": "Alerter aussi pour les déviations"
         },
         "data_description": {
-          "jours_expiration": "Le flux officiel ne donne pas la date de fin des chantiers : un arrêté reste « actif » ce nombre de jours après sa publication."
+          "jours_expiration": "Le flux officiel ne donne pas la date de fin des chantiers : un arrêté reste « actif » ce nombre de jours après sa publication.",
+          "inclure_deviations": "Une zone traversée seulement par un itinéraire de déviation déclenche aussi l'alerte (trafic reporté). Décoché, seuls les vrais chantiers comptent."
         }
       }
     },
@@ -30,7 +32,11 @@
           "toute_la_ville": "Surveiller toute la ville",
           "quartiers": "Quartiers surveillés",
           "rues": "Rues surveillées",
-          "jours_expiration": "Durée d'affichage d'un arrêté (jours)"
+          "jours_expiration": "Durée d'affichage d'un arrêté (jours)",
+          "inclure_deviations": "Alerter aussi pour les déviations"
+        },
+        "data_description": {
+          "inclure_deviations": "Une zone traversée seulement par un itinéraire de déviation déclenche aussi l'alerte (trafic reporté). Décoché, seuls les vrais chantiers comptent."
         }
       }
     },
