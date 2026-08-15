@@ -2,7 +2,7 @@
 // Carte Lovelace Travaux Besançon — fil des arrêtés de voirie sur les zones suivies.
 // Deux modes : « flux » (liste détaillée) et « compact » (compteur + dernières alertes).
 
-const TB_VERSION = "1.1.0";
+const TB_VERSION = "1.1.1";
 
 const COLORS = {
   primary:       "#e67e22",
