@@ -31,6 +31,11 @@ TYPE_LABELS = {
 }
 
 
+def _majuscule(texte: str) -> str:
+    """Majuscule initiale sans toucher au reste (préserve les noms propres)."""
+    return texte[0].upper() + texte[1:] if texte else texte
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -132,8 +137,7 @@ class TravauxGeolocationEvent(CoordinatorEntity[TravauxCoordinator], Geolocation
             "integration": DOMAIN,
         }
         if resume.get("motif"):
-            motif = resume["motif"]
-            attrs["motif"] = motif[0].upper() + motif[1:]
+            attrs["motif"] = _majuscule(resume["motif"])
         if resume.get("numeros"):
             attrs["au_niveau"] = "n°" + ", ".join(resume["numeros"])
         if arrete.get("rues_deviation"):
@@ -145,12 +149,11 @@ class TravauxGeolocationEvent(CoordinatorEntity[TravauxCoordinator], Geolocation
         if resume.get("date_fin"):
             attrs["au"] = resume["date_fin"]
         if resume.get("horaires"):
-            attrs["horaires"] = ", ".join(resume["horaires"])
+            attrs["horaires"] = _majuscule(", ".join(resume["horaires"]))
         else:
-            attrs["horaires"] = "toute la journée"
+            attrs["horaires"] = "Toute la journée"
         if resume.get("restrictions"):
-            attrs["restrictions"] = ", ".join(resume["restrictions"])
+            attrs["restrictions"] = _majuscule(", ".join(resume["restrictions"]))
         if resume.get("demandeur"):
-            demandeur = resume["demandeur"]
-            attrs["demandeur"] = demandeur[0].upper() + demandeur[1:]
+            attrs["demandeur"] = _majuscule(resume["demandeur"])
         return attrs
