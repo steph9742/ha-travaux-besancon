@@ -52,6 +52,8 @@ Le flux officiel ne publie pas la date de fin des chantiers (elle n'est que dans
 | `event.travaux_besancon_nouvel_arrete` | Se déclenche pour chaque nouvel arrêté détecté sur vos zones |
 | `geo_location.travaux_<rue>` | Un marqueur par chantier géolocalisé (état = distance au domicile en km), avec le résumé complet en attributs |
 
+Le **nom affiché** du capteur principal reflète les zones surveillées : « Travaux St-Claude-Torcols » pour un quartier, « Travaux St-Claude-Torcols, Rue De Vesoul » pour plusieurs zones (« +N » au-delà de trois), et « Travaux Besançon » en mode ville entière. Les capteurs binaires portent chacun le nom de leur zone.
+
 À la première synchronisation, les arrêtés déjà en cours sont mémorisés **sans** déclencher de notifications.
 
 ## Automatisation d'exemple

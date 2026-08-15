@@ -33,17 +33,36 @@ class TravauxSensor(CoordinatorEntity[TravauxCoordinator], SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "arrêtés"
     _attr_icon = "mdi:traffic-cone"
-    _attr_name = "Travaux Besançon"
 
     def __init__(self, coordinator: TravauxCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_arretes_actifs"
+        self._attr_name = self._nommer(coordinator)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Travaux Besançon",
             manufacturer="Ville de Besançon",
             model="Arrêtés temporaires de voirie",
         )
+
+    @staticmethod
+    def _nommer(coordinator: TravauxCoordinator) -> str:
+        """Nom du capteur d'après les zones surveillées.
+
+        « Travaux Besançon » en mode ville entière, sinon la ou les zones
+        (quartiers puis rues), limitées à trois pour rester lisible.
+        """
+        if coordinator.toute_la_ville:
+            return "Travaux Besançon"
+        zones = [
+            zone["nom"].title()
+            for zone in coordinator.zones().values()
+        ]
+        if not zones:
+            return "Travaux Besançon"
+        if len(zones) > 3:
+            return f"Travaux {', '.join(zones[:3])} +{len(zones) - 3}"
+        return f"Travaux {', '.join(zones)}"
 
     @property
     def native_value(self) -> int | None:

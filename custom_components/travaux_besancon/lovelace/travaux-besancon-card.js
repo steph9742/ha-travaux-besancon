@@ -260,7 +260,7 @@ class TravauxBesanconCard extends HTMLElement {
   }
 
   _renderCompact(data) {
-    const derniers = data.arretes.slice(0, 3);
+    const derniers = data.arretes.slice(0, this._config.max_items);
     const lignes = derniers.length
       ? derniers.map((a) => {
           const type  = a.type || "autre";
@@ -277,7 +277,12 @@ class TravauxBesanconCard extends HTMLElement {
            <ha-icon icon="mdi:check-circle-outline"></ha-icon> Rien à signaler
          </div>`;
 
-    return `${this._renderHeader(data, true)}<div class="tb-liste tb-liste-compacte">${lignes}</div>`;
+    const reste = data.arretes.length - derniers.length;
+    const pied = reste > 0
+      ? `<div class="tb-pied">+ ${reste} autre${reste > 1 ? "s" : ""}</div>`
+      : "";
+
+    return `${this._renderHeader(data, true)}<div class="tb-liste tb-liste-compacte">${lignes}</div>${pied}`;
   }
 
   _styles() {
