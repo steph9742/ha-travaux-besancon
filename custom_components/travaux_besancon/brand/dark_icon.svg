@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Marqueur de carte -->
+  <path d="M256 16 C150 16 64 102 64 208 c0 84 64 148 192 288 128 -140 192 -204 192 -288 C448 102 362 16 256 16 Z" fill="#eceff1"/>
+  <circle cx="256" cy="208" r="140" fill="#37474f"/>
+  <!-- Cône de chantier -->
+  <rect x="176" y="288" width="160" height="28" rx="14" fill="#d35400"/>
+  <circle cx="256" cy="122" r="20" fill="#e67e22"/>
+  <path d="M236 118 L276 118 L322 292 L190 292 Z" fill="#e67e22"/>
+  <path d="M219 180 L293 180 L301 210 L211 210 Z" fill="#ffffff"/>
+  <path d="M203 240 L309 240 L316 266 L196 266 Z" fill="#ffffff"/>
+</svg>
