@@ -84,6 +84,11 @@ class TravauxGeolocationEvent(CoordinatorEntity[TravauxCoordinator], Geolocation
         self.rue = rue
         self._attr_latitude = float(coords[0])
         self._attr_longitude = float(coords[1])
+        # Pastille cône colorée par type, servie avec la carte Lovelace —
+        # la carte map l'affiche à la place des initiales.
+        arrete = (coordinator.data or {}).get("arretes", {}).get(arrete_id, {})
+        type_arrete = arrete.get("type", "autre")
+        self._attr_entity_picture = f"/travaux_besancon_card/marker_{type_arrete}.png"
         # Pas d'unique_id : comme les intégrations geo_location du core, les
         # marqueurs sont éphémères et ne doivent pas remplir le registre.
         self._attr_name = f"Travaux {rue.title()}"

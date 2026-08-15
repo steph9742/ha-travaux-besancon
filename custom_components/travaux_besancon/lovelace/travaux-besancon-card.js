@@ -2,7 +2,7 @@
 // Carte Lovelace Travaux Besançon — fil des arrêtés de voirie sur les zones suivies.
 // Deux modes : « flux » (liste détaillée) et « compact » (compteur + dernières alertes).
 
-const TB_VERSION = "1.1.1";
+const TB_VERSION = "1.2.0";
 
 const COLORS = {
   primary:       "#e67e22",
@@ -25,6 +25,14 @@ const TYPE_ICONS = {
   stationnement: "mdi:car-off",
   circulation_stationnement: "mdi:sign-caution",
   autre:         "mdi:road-variant",
+};
+
+// Les attributs des entités geo_location portent le libellé FR du type
+const LABEL_TO_TYPE = {
+  "Circulation": "circulation",
+  "Stationnement": "stationnement",
+  "Circulation et stationnement": "circulation_stationnement",
+  "Voirie": "autre",
 };
 
 function esc(str) {
@@ -78,7 +86,9 @@ class TravauxBesanconCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.entity) throw new Error("Définissez « entity » (capteur Travaux Besançon).");
+    if (!config.entity && config.mode !== "carte") {
+      throw new Error("Définissez « entity » (capteur Travaux Besançon).");
+    }
     this._config = {
       mode: "flux",
       max_items: 10,
@@ -86,8 +96,12 @@ class TravauxBesanconCard extends HTMLElement {
       show_pdf: true,
       show_quartiers: true,
       jours_nouveau: 3,
+      map_height: 320,
       ...config,
     };
+    this._carteConstruite = false;
+    this._mapEl = null;
+    this._entitesJson = "";
     this._render();
   }
 
@@ -97,6 +111,9 @@ class TravauxBesanconCard extends HTMLElement {
   }
 
   getCardSize() {
+    if (this._config?.mode === "carte") {
+      return Math.ceil((this._config.map_height + 60) / 50);
+    }
     return this._config?.mode === "compact" ? 2 : 4;
   }
 
@@ -115,6 +132,13 @@ class TravauxBesanconCard extends HTMLElement {
   _render() {
     if (!this._config || !this._hass) return;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+
+    if (this._config.mode === "carte") {
+      this._renderCarte();
+      return;
+    }
+    this._carteConstruite = false;
+    this._mapEl = null;
 
     const data = this._arretes();
     let corps;
@@ -285,6 +309,164 @@ class TravauxBesanconCard extends HTMLElement {
     return `${this._renderHeader(data, true)}<div class="tb-liste tb-liste-compacte">${lignes}</div>${pied}`;
   }
 
+  // ------------------------------------------------------------------
+  //  Mode carte : ha-map + panneau de détail maison
+  // ------------------------------------------------------------------
+
+  _entitesGeo() {
+    const st = this._hass?.states || {};
+    return Object.keys(st).filter(
+      (id) => id.startsWith("geo_location.") &&
+        st[id].attributes?.integration === "travaux_besancon",
+    );
+  }
+
+  _renderCarte() {
+    if (!this._carteConstruite) {
+      this._carteConstruite = true;
+      this.shadowRoot.innerHTML = `
+        <style>${this._styles()}</style>
+        <ha-card>
+          <div class="tb-header">
+            <ha-icon class="tb-header-ico" icon="mdi:traffic-cone"></ha-icon>
+            <div class="tb-header-titre">${esc(this._config.title || "Chantiers — Besançon")}</div>
+            <div class="tb-chip" id="tb-chip" style="background:${COLORS.primary}">…</div>
+          </div>
+          <div class="tb-map-wrap" style="height:${Number(this._config.map_height) || 320}px">
+            <div class="tb-map-conteneur"></div>
+            <div class="tb-map-attente">Chargement de la carte…</div>
+            <div class="tb-map-detail tb-cache"></div>
+          </div>
+        </ha-card>`;
+      this._initCarte();
+    }
+    this._majCarte();
+  }
+
+  async _initCarte() {
+    try {
+      if (!customElements.get("ha-map")) {
+        // ha-map est chargé paresseusement par HA : on instancie une carte
+        // map native invisible pour déclencher son import.
+        const helpers = await window.loadCardHelpers();
+        const amorce = helpers.createCardElement({ type: "map", entities: [] });
+        amorce.hass = this._hass;
+        amorce.style.display = "none";
+        this.shadowRoot.appendChild(amorce);
+        await Promise.race([
+          customElements.whenDefined("ha-map"),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
+        ]);
+        amorce.remove();
+      }
+    } catch (e) {
+      const attente = this.shadowRoot.querySelector(".tb-map-attente");
+      if (attente) {
+        attente.textContent =
+          "Impossible de charger le composant carte de Home Assistant.";
+      }
+      return;
+    }
+
+    const conteneur = this.shadowRoot.querySelector(".tb-map-conteneur");
+    if (!conteneur || this._mapEl) return;
+
+    const map = document.createElement("ha-map");
+    map.autoFit = true;
+    // Le clic sur un marqueur ouvre notre panneau, pas le more-info natif
+    map.addEventListener("hass-more-info", (ev) => {
+      ev.stopPropagation();
+      const entityId = ev.detail?.entityId;
+      if (entityId?.startsWith("geo_location.")) this._ouvrirDetail(entityId);
+    });
+    conteneur.appendChild(map);
+    this._mapEl = map;
+    this.shadowRoot.querySelector(".tb-map-attente")?.remove();
+    this._entitesJson = "";
+    this._majCarte();
+  }
+
+  _majCarte() {
+    const ents = this._entitesGeo();
+
+    const chip = this.shadowRoot.getElementById("tb-chip");
+    if (chip) {
+      const st = this._config.entity && this._hass.states[this._config.entity];
+      chip.textContent = st ? st.state : String(ents.length);
+      chip.style.background = (st ? Number(st.state) : ents.length) > 0
+        ? COLORS.primary : COLORS.ok;
+    }
+
+    if (this._mapEl) {
+      this._mapEl.hass = this._hass;
+      const json = JSON.stringify(ents);
+      if (json !== this._entitesJson) {
+        this._entitesJson = json;
+        this._mapEl.entities = ents.map((id) => {
+          const type = LABEL_TO_TYPE[this._hass.states[id]?.attributes?.type] || "autre";
+          return { entity_id: id, color: COLORS[type] };
+        });
+      }
+    }
+
+    // Rafraîchit ou ferme le panneau si l'entité a disparu
+    if (this._detailId) {
+      if (this._hass.states[this._detailId]) this._ouvrirDetail(this._detailId);
+      else this._fermerDetail();
+    }
+  }
+
+  _ouvrirDetail(entityId) {
+    const st = this._hass.states[entityId];
+    const panneau = this.shadowRoot.querySelector(".tb-map-detail");
+    if (!st || !panneau) return;
+    this._detailId = entityId;
+
+    const a = st.attributes;
+    const type = LABEL_TO_TYPE[a.type] || "autre";
+    const color = COLORS[type];
+
+    const lignes = [];
+    if (a.motif) lignes.push(["mdi:excavator", a.motif]);
+    if (a.du) {
+      lignes.push(["mdi:calendar-range",
+        a.du === a.au ? `Le ${dateFr(a.du)}` : `Du ${dateFr(a.du)} au ${dateFr(a.au)}`]);
+    }
+    if (a.horaires) lignes.push(["mdi:clock-outline", a.horaires]);
+    if (a.au_niveau) lignes.push(["mdi:map-marker", `Au niveau du ${a.au_niveau}`]);
+    if (a.restrictions) lignes.push(["mdi:alert-octagon-outline", a.restrictions]);
+    if (a.demandeur) lignes.push(["mdi:account-hard-hat", a.demandeur]);
+    if (a.quartiers?.length) lignes.push(["mdi:map", a.quartiers.join(", ")]);
+
+    panneau.innerHTML = `
+      <div class="tb-detail-entete">
+        <span class="tb-detail-type" style="background:${color}">${esc(a.type)}</span>
+        <b class="tb-detail-rue">${esc(a.rue || st.entity_id)}</b>
+        <button class="tb-detail-fermer" title="Fermer">✕</button>
+      </div>
+      ${lignes.map(([ico, txt]) => `
+        <div class="tb-detail-ligne">
+          <ha-icon icon="${ico}"></ha-icon><span>${esc(txt)}</span>
+        </div>`).join("")}
+      ${a.url_pdf ? `
+        <a class="tb-detail-pdf" href="${esc(a.url_pdf)}" target="_blank" rel="noopener">
+          <ha-icon icon="mdi:file-pdf-box"></ha-icon> Consulter l'arrêté ${esc(a.arrete || "")}
+        </a>` : ""}
+    `;
+    panneau.classList.remove("tb-cache");
+    panneau.querySelector(".tb-detail-fermer")
+      .addEventListener("click", () => this._fermerDetail());
+  }
+
+  _fermerDetail() {
+    this._detailId = null;
+    const panneau = this.shadowRoot.querySelector(".tb-map-detail");
+    if (panneau) {
+      panneau.classList.add("tb-cache");
+      panneau.innerHTML = "";
+    }
+  }
+
   _styles() {
     return `
       :host { display: block; }
@@ -359,6 +541,56 @@ class TravauxBesanconCard extends HTMLElement {
       .tb-vide ha-icon { --mdc-icon-size: 34px; }
       code { font-size: 12px; }
 
+      .tb-map-wrap {
+        position: relative; border-radius: 12px; overflow: hidden;
+        margin: 0 -4px 2px;
+      }
+      .tb-map-conteneur, .tb-map-conteneur ha-map {
+        position: absolute; inset: 0; display: block; height: 100%;
+      }
+      .tb-map-attente {
+        position: absolute; inset: 0; display: flex;
+        align-items: center; justify-content: center;
+        color: var(--secondary-text-color); font-size: 13px;
+        background: var(--secondary-background-color, rgba(127,127,127,.08));
+      }
+      .tb-map-detail {
+        position: absolute; left: 0; right: 0; bottom: 0; z-index: 999;
+        background: var(--card-background-color, var(--ha-card-background, #fff));
+        border-radius: 12px 12px 0 0; padding: 12px 16px 14px;
+        box-shadow: 0 -3px 14px rgba(0,0,0,.3);
+        max-height: 75%; overflow-y: auto;
+      }
+      .tb-cache { display: none; }
+      .tb-detail-entete {
+        display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+      }
+      .tb-detail-type {
+        color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .05em; padding: 2px 8px; border-radius: 9px; flex-shrink: 0;
+      }
+      .tb-detail-rue {
+        flex: 1; font-size: 15px; color: var(--primary-text-color);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .tb-detail-fermer {
+        background: none; border: none; cursor: pointer; flex-shrink: 0;
+        color: var(--secondary-text-color); font-size: 15px; padding: 2px 6px;
+      }
+      .tb-detail-ligne {
+        display: flex; align-items: flex-start; gap: 8px;
+        font-size: 13px; color: var(--primary-text-color); padding: 3px 0;
+      }
+      .tb-detail-ligne ha-icon {
+        --mdc-icon-size: 17px; color: var(--secondary-text-color); flex-shrink: 0;
+      }
+      .tb-detail-pdf {
+        display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+        font-size: 13px; color: ${COLORS.primary}; text-decoration: none;
+        font-weight: 500;
+      }
+      .tb-detail-pdf ha-icon { --mdc-icon-size: 18px; }
+
       .tb-liste-compacte { gap: 4px; }
       .tb-mini {
         display: flex; align-items: center; gap: 8px;
@@ -417,8 +649,9 @@ class TravauxBesanconCardEditor extends HTMLElement {
         <div class="tb-field">
           <label>Mode</label>
           <select id="mode">
-            <option value="flux" ${cfg.mode !== "compact" ? "selected" : ""}>Flux (liste détaillée)</option>
+            <option value="flux" ${cfg.mode !== "compact" && cfg.mode !== "carte" ? "selected" : ""}>Flux (liste détaillée)</option>
             <option value="compact" ${cfg.mode === "compact" ? "selected" : ""}>Compact</option>
+            <option value="carte" ${cfg.mode === "carte" ? "selected" : ""}>Carte (marqueurs des chantiers)</option>
           </select>
         </div>
         <div class="tb-field">
@@ -437,6 +670,10 @@ class TravauxBesanconCardEditor extends HTMLElement {
           <label>Nombre maximum d'arrêtés affichés</label>
           <input type="number" id="max_items" min="1" max="50" value="${cfg.max_items ?? 10}">
         </div>
+        <div class="tb-field">
+          <label>Hauteur de la carte <span class="tb-opt">(mode carte, en pixels)</span></label>
+          <input type="number" id="map_height" min="150" max="900" step="10" value="${cfg.map_height ?? 320}">
+        </div>
         <div class="tb-toggles">
           <label class="tb-toggle"><input type="checkbox" id="show_pdf" ${cfg.show_pdf !== false ? "checked" : ""}> Lien vers le PDF de l'arrêté</label>
           <label class="tb-toggle"><input type="checkbox" id="show_quartiers" ${cfg.show_quartiers !== false ? "checked" : ""}> Afficher les quartiers</label>
@@ -446,7 +683,7 @@ class TravauxBesanconCardEditor extends HTMLElement {
       </div>
     `;
 
-    for (const id of ["entity", "mode", "title", "group_by", "max_items", "show_pdf", "show_quartiers"]) {
+    for (const id of ["entity", "mode", "title", "group_by", "max_items", "map_height", "show_pdf", "show_quartiers"]) {
       const el = this.shadowRoot.getElementById(id);
       el.addEventListener("change", () => this._majConfig());
       if (el.type === "text" || el.type === "number") {
@@ -466,6 +703,8 @@ class TravauxBesanconCardEditor extends HTMLElement {
     if (get("group_by").value !== "none") cfg.group_by = get("group_by").value;
     const max = parseInt(get("max_items").value, 10);
     if (!Number.isNaN(max) && max !== 10) cfg.max_items = max;
+    const hauteur = parseInt(get("map_height").value, 10);
+    if (!Number.isNaN(hauteur) && hauteur !== 320) cfg.map_height = hauteur;
     if (!get("show_pdf").checked) cfg.show_pdf = false;
     if (!get("show_quartiers").checked) cfg.show_quartiers = false;
 
@@ -487,6 +726,7 @@ class TravauxBesanconCardEditor extends HTMLElement {
     if (cfg.title) lines.push(`title: ${cfg.title}`);
     if (cfg.group_by && cfg.group_by !== "none") lines.push(`group_by: ${cfg.group_by}`);
     if (cfg.max_items !== undefined && cfg.max_items !== 10) lines.push(`max_items: ${cfg.max_items}`);
+    if (cfg.map_height !== undefined && cfg.map_height !== 320) lines.push(`map_height: ${cfg.map_height}`);
     if (cfg.show_pdf === false) lines.push("show_pdf: false");
     if (cfg.show_quartiers === false) lines.push("show_quartiers: false");
     return lines.join("\n");

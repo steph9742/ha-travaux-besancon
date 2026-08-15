@@ -79,7 +79,18 @@ Le payload de l'événement contient : `id`, `titre`, `type` (`circulation` / `s
 
 ## Carte des chantiers (map)
 
-Chaque arrêté actif sur vos zones devient un **marqueur géolocalisé** sur la carte map native de Home Assistant. Ajoutez une carte **Map** avec la source `travaux_besancon` :
+Chaque arrêté actif sur vos zones devient un **marqueur géolocalisé** (pastille cône, colorée selon le type : orange circulation, bleu stationnement). Deux façons de l'afficher :
+
+**Recommandé — le mode carte de la carte incluse**, avec un panneau de détail intégré : un clic sur un marqueur affiche directement le chantier — type, motif (« travaux de réfection des enrobés »…), période réelle, horaires (« de 8h00 à 17h00 », « de nuit »…), numéro dans la rue, restrictions, demandeur, quartiers et bouton vers le PDF :
+
+```yaml
+type: custom:travaux-besancon-card
+mode: carte
+entity: sensor.travaux_besancon
+map_height: 320   # optionnel, en pixels
+```
+
+**Alternative — la carte Map native** de Home Assistant (le clic ouvre alors la fiche d'entité standard, avec les mêmes informations dans la section « Attributs ») :
 
 ```yaml
 type: map
@@ -87,8 +98,6 @@ geo_location_sources:
   - travaux_besancon
 default_zoom: 13
 ```
-
-Un **clic sur un marqueur** ouvre la fiche du chantier : type d'arrêté, motif (« travaux de réfection des enrobés »…), période réelle (`du` / `au`), horaires (« de 8h00 à 17h00 », « de nuit », ou « toute la journée »), numéro dans la rue le cas échéant, restrictions, demandeur, quartiers et lien vers le PDF.
 
 Le géocodage des rues (BAN + OpenStreetMap) est embarqué dans l'intégration : ~93 % des rues ont des coordonnées ; les quelques voies inconnues des géocodeurs (certains sentiers ou chemins) n'affichent pas de marqueur mais restent visibles dans la liste.
 

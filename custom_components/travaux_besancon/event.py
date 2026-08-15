@@ -31,7 +31,8 @@ class TravauxEvent(CoordinatorEntity[TravauxCoordinator], EventEntity):
     """
 
     _attr_event_types = [EVENT_TYPE_NOUVEL_ARRETE]
-    _attr_name = "Nouvel arrêté"
+    # Slugifié en event.travaux_besancon_nouvel_arrete (cf. README)
+    _attr_name = "Travaux Besançon nouvel arrêté"
     _attr_icon = "mdi:bell-alert"
 
     def __init__(self, coordinator: TravauxCoordinator, entry: ConfigEntry) -> None:
