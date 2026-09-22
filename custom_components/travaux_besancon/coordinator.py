@@ -55,9 +55,10 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
          les zones suivies (ville / quartiers / rues), déclenche un événement
          par nouvel arrêté correspondant.
 
-    Le flux ne publie que le mois courant et ne donne pas la date de fin des
-    chantiers : un arrêté est considéré « actif » pendant jours_expiration
-    jours après sa publication.
+    Le flux remonte tous les actes depuis 2022 (constaté le 22/09/2026 :
+    ≈ 11 000 actes, 4,4 Mo) et ne donne pas la date de fin des chantiers :
+    un arrêté est considéré « actif » pendant jours_expiration jours après
+    sa publication, et les arrêtés expirés sont écartés dès le parsing.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -171,12 +172,15 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (aiohttp.ClientError, TimeoutError) as err:
             raise UpdateFailed(f"Erreur réseau flux des actes: {err}") from err
 
+        # Le flux remonte TOUS les actes depuis 2022 (≈ 11 000, 4,4 Mo) : parsing
+        # XML et matching des rues sont du CPU pur → hors de la boucle d'événements,
+        # sinon HA gèle le temps du refresh (vécu 22/09/2026).
         try:
-            racine = ElementTree.fromstring(brut)
+            racine = await self.hass.async_add_executor_job(ElementTree.fromstring, brut)
         except ElementTree.ParseError as err:
             raise UpdateFailed(f"Flux des actes illisible: {err}") from err
 
-        arretes = self._parser_actes(racine)
+        arretes = await self.hass.async_add_executor_job(self._parser_actes, racine)
         actifs = self._filtrer_actifs(arretes)
 
         # Matching préliminaire sur les rues du titre : détermine quels PDF
@@ -231,11 +235,20 @@ class TravauxCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _parser_actes(self, racine) -> dict[str, dict[str, Any]]:
         arretes: dict[str, dict[str, Any]] = {}
+        # Le matching des rues ne sert qu'aux arrêtés encore actifs : on écarte
+        # les autres AVANT (même critère que _filtrer_actifs), sinon les
+        # ~10 000 arrêtés historiques du flux passaient tous au matching.
+        limite = (
+            dt_util.now().date() - timedelta(days=self.jours_expiration)
+        ).isoformat()
         for acte in racine.iter("acte"):
             aid = acte.get("id", "")
             titre = (acte.findtext("titre") or "").strip()
             domaine = (acte.findtext("domaine") or "").strip()
             if not aid or not titre or domaine != "Voirie":
+                continue
+            publication = (acte.findtext("datePublication") or "").strip()
+            if not publication or publication < limite:
                 continue
 
             rues = extraire_rues(titre, self.referentiel.rues)

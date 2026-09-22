@@ -139,7 +139,7 @@ title: Travaux
 - **Flux des actes** : `https://datasets.grandbesancon.fr/actes.php?method=getActesVilleDeBesancon` — mis à jour plusieurs fois par mois, interrogé toutes les 6 heures.
 - **Référentiel rues/quartiers** : dataset officiel [« Rues et quartiers »](https://data.grandbesancon.fr/opendata/dataset/rueQuartiers) — une copie est embarquée dans l'intégration (fonctionnement hors ligne) et rafraîchie automatiquement au démarrage.
 - Le flux couvre la **Ville de Besançon uniquement** (pas les autres communes de Grand Besançon Métropole).
-- Le flux ne publie que le **mois courant** et le détail des chantiers (dates précises, nature) n'est disponible que dans le PDF de chaque arrêté.
+- Le flux remonte **tous les actes depuis 2022** (≈ 11 000) ; l'intégration ne traite que les arrêtés récents (fenêtre d'expiration). Le détail des chantiers (dates précises, nature) n'est disponible que dans le PDF de chaque arrêté.
 - Une rue traversant plusieurs quartiers (ex. rue de Dole) déclenche l'alerte de chacun de ses quartiers.
 
 ## Licence

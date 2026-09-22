@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Iterable
+from functools import lru_cache
 
 from .const import TYPE_AUTRE, TYPE_CIRCULATION, TYPE_MIXTE, TYPE_STATIONNEMENT
 
@@ -32,6 +33,26 @@ def _motif(rue_normalisee: str) -> re.Pattern:
     )
 
 
+@lru_cache(maxsize=4)
+def _motif_global(rues: tuple[str, ...]) -> re.Pattern:
+    """Un seul motif pour tout le référentiel, compilé une fois.
+
+    Avant : un `re.compile` par rue ET par titre — 1 040 rues × ~10 000 actes
+    du flux (qui remonte tout depuis 2022) = plus de dix millions de
+    compilations, cache `re` saturé, boucle d'événements HA gelée 10 à 15 min
+    à chaque refresh (vécu 22/09/2026 : gels à 02:33 et 08:54, redémarrages
+    forcés par le watchdog).
+
+    Le motif est un lookahead à largeur nulle : à chaque position du titre, il
+    capture la rue la plus longue (alternatives triées par longueur) suivie
+    d'un délimiteur — exactement ce que trouvait l'ancienne boucle rue par
+    rue, chevauchements compris, puisqu'une occurrence de largeur nulle
+    n'empêche pas d'en trouver une autre à la position suivante.
+    """
+    alternatives = "|".join(re.escape(r) for r in sorted(rues, key=len, reverse=True))
+    return re.compile(r"(?<![A-Z0-9'])(?=(" + alternatives + r")(?![A-Z0-9']))")
+
+
 def extraire_rues(titre: str, rues: Iterable[str]) -> list[str]:
     """Retourne les rues du référentiel présentes dans un titre d'arrêté.
 
@@ -40,12 +61,14 @@ def extraire_rues(titre: str, rues: Iterable[str]) -> list[str]:
     match le plus long à une position donnée est conservé.
     """
     titre_norm = normaliser(titre)
+    rues_t = rues if isinstance(rues, tuple) else tuple(rues)
+    if not rues_t:
+        return []
 
     # Toutes les occurrences (rue, début, fin), les plus longues d'abord
-    occurrences: list[tuple[str, int, int]] = []
-    for rue in rues:
-        for m in _motif(rue).finditer(titre_norm):
-            occurrences.append((rue, m.start(), m.end()))
+    occurrences: list[tuple[str, int, int]] = [
+        (m.group(1), m.start(1), m.end(1)) for m in _motif_global(rues_t).finditer(titre_norm)
+    ]
     occurrences.sort(key=lambda o: o[2] - o[1], reverse=True)
 
     retenues: list[tuple[str, int, int]] = []
